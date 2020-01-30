@@ -51,3 +51,18 @@ func TestSnowflake_NewID(t *testing.T) {
 	s2.Stop()
 	s2.NewID()
 }
+
+func TestSnowflake_CheckDup(t *testing.T) {
+	s := New(testStartTime, testInstanceID)
+	defer s.Stop()
+
+	out := map[uint64]bool{}
+
+	for i := 0; i < 100000; i++ {
+		id := s.NewID()
+		if out[id] {
+			t.Fatal("duplicated")
+		}
+		out[id] = true
+	}
+}
