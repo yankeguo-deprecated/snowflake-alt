@@ -55,9 +55,9 @@ type Snowflake interface {
 }
 
 type snowflake struct {
-	chReq     chan interface{}
+	chReq     chan struct{}
 	chResp    chan uint64
-	chStop    chan interface{}
+	chStop    chan struct{}
 	epoch     time.Time
 	shiftedID uint64
 	count     uint64
@@ -76,9 +76,9 @@ func New(opts Options) (Snowflake, error) {
 		return nil, errors.New("failed to create Snowflake: invalid ID")
 	}
 	sf := &snowflake{
-		chReq:     make(chan interface{}),
+		chReq:     make(chan struct{}),
 		chResp:    make(chan uint64),
-		chStop:    make(chan interface{}),
+		chStop:    make(chan struct{}),
 		epoch:     opts.Epoch,
 		shiftedID: opts.ID << 12,
 		clock:     opts.Clock,
@@ -122,7 +122,7 @@ func (sf *snowflake) Count() uint64 {
 
 func (sf *snowflake) NewID() uint64 {
 	select {
-	case sf.chReq <- nil:
+	case sf.chReq <- struct{}{}:
 		return <-sf.chResp
 	case <-sf.chStop:
 		panic("NewID() invoked after snowflake stopped")
