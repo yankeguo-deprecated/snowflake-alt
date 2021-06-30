@@ -1,6 +1,6 @@
 # snowflake
 
-A lock-free implementation of snowflake algorithm in Golang
+A concurrent-safe lock-free implementation of snowflake algorithm in Golang
 
 ## Get
 
@@ -9,17 +9,26 @@ A lock-free implementation of snowflake algorithm in Golang
 ## Usage
 
 ```go
-// First argument should be a pre-defined zero time
-// Second argument should be a unique unsigned integer with maximum 10 bits
-s := snowflake.New(time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC), 0)
+// assign a unique identifier
+id, _ := strconv.ParseUint(os.Getenv("WORKER_ID"), 10, 64)
 
-// Get a snowflake id
+// create a instance
+s := snowflake.New(snowflake.Options{
+  Epoch: time.Date(2020, time.January, 1, 0, 0, 0, 0, time.UTC),
+  ID: id,
+})
+
+// get a id
 s.NewID()
 
-// Stop and release all related resource
+// stop and release all related resource
 s.Stop()
 ```
- 
+
+## Performance
+
+Less than `1us/op`
+
 ## Credits
  
 Guo Y.K., MIT License

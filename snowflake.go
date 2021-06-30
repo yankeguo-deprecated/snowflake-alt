@@ -1,14 +1,45 @@
 package snowflake
 
 import (
+	"errors"
 	"time"
 )
 
 const (
-	uint10Mask = (uint64(1) << 10) - 1
-	uint12Mask = (uint64(1) << 12) - 1
-	uint41Mask = (uint64(1) << 41) - 1
+	Uint10Mask = (uint64(1) << 10) - 1
+	Uint12Mask = (uint64(1) << 12) - 1
+	Uint41Mask = (uint64(1) << 41) - 1
 )
+
+// Clock abstract the standard time package
+type Clock interface {
+	Since(t time.Time) time.Duration
+	Sleep(d time.Duration)
+}
+
+type defaultClock struct{}
+
+func (defaultClock) Since(t time.Time) time.Duration {
+	return time.Since(t)
+}
+
+func (defaultClock) Sleep(d time.Duration) {
+	time.Sleep(d)
+}
+
+func DefaultClock() Clock {
+	return defaultClock{}
+}
+
+// Options options for Snowflake
+type Options struct {
+	// Clock clock system, default to standard library
+	Clock Clock
+	// Epoch pre-defined zero time in Snowflake algorithm, required
+	Epoch time.Time
+	// ID unique unsigned integer indicate the ID of current Snowflake instance, maximum 10 bits wide, default to 0
+	ID uint64
+}
 
 // Snowflake the main interface
 type Snowflake interface {
@@ -24,27 +55,36 @@ type Snowflake interface {
 }
 
 type snowflake struct {
-	chReq        chan interface{}
-	chResp       chan uint64
-	chStop       chan interface{}
-	startTime    time.Time
-	shiftedInsID uint64
-	count        uint64
+	chReq     chan interface{}
+	chResp    chan uint64
+	chStop    chan interface{}
+	epoch     time.Time
+	shiftedID uint64
+	count     uint64
+	clock     Clock
 }
 
 // New create a new instance of Snowflake
-// startTime, the zero time for snowflake algorithm
-// instanceId, should be a unique unsigned integer with maximum 10 bits
-func New(startTime time.Time, instanceId uint64) Snowflake {
+func New(opts Options) (Snowflake, error) {
+	if opts.Clock == nil {
+		opts.Clock = DefaultClock()
+	}
+	if opts.Epoch.IsZero() {
+		return nil, errors.New("failed to create Snowflake: missing Epoch")
+	}
+	if opts.ID&Uint10Mask != opts.ID {
+		return nil, errors.New("failed to create Snowflake: invalid ID")
+	}
 	sf := &snowflake{
-		chReq:        make(chan interface{}),
-		chResp:       make(chan uint64),
-		chStop:       make(chan interface{}),
-		startTime:    startTime,
-		shiftedInsID: (instanceId & uint10Mask) << 12,
+		chReq:     make(chan interface{}),
+		chResp:    make(chan uint64),
+		chStop:    make(chan interface{}),
+		epoch:     opts.Epoch,
+		shiftedID: opts.ID << 12,
+		clock:     opts.Clock,
 	}
 	go sf.run()
-	return sf
+	return sf, nil
 }
 
 func (sf *snowflake) Stop() {
@@ -52,17 +92,16 @@ func (sf *snowflake) Stop() {
 }
 
 func (sf *snowflake) run() {
-	var lastT uint64
-	var seqID uint64
+	var nowT, lastT, seqID uint64
 	for {
 		select {
 		case <-sf.chReq:
 		retry:
-			nowT := uint64(time.Since(sf.startTime) / time.Millisecond)
+			nowT = uint64(sf.clock.Since(sf.epoch) / time.Millisecond)
 			if nowT == lastT {
 				seqID = seqID + 1
-				if seqID > uint12Mask {
-					time.Sleep(time.Millisecond)
+				if seqID > Uint12Mask {
+					sf.clock.Sleep(time.Millisecond)
 					goto retry
 				}
 			} else {
@@ -70,7 +109,7 @@ func (sf *snowflake) run() {
 				seqID = 0
 			}
 			sf.count++
-			sf.chResp <- ((nowT & uint41Mask) << 22) | sf.shiftedInsID | seqID
+			sf.chResp <- ((nowT & Uint41Mask) << 22) | sf.shiftedID | seqID
 		case <-sf.chStop:
 			return
 		}
